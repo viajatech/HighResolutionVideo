@@ -1,0 +1,143 @@
+#Por David Ruiz
+#Puedes usar mi script siempre y cuando me des créditos en mis redes sociales @viajatech
+#Se agredecido y dale estrella a este repositorio, gracias! 
+
+#pip install opencv-python-headless pillow numpy
+
+
+import tkinter as tk
+from tkinter import filedialog, ttk
+import cv2
+import numpy as np
+import os
+from threading import Thread
+from PIL import Image, ImageTk, ImageEnhance
+
+class VideoUpscaler:
+    def __init__(self, master):
+        self.master = master
+        master.title("High Resolution Video by Viaja Tech")
+        master.geometry("800x600")
+
+        self.input_path = ""
+        self.output_path = ""
+        self.is_processing = False
+
+        self.create_widgets()
+
+    def create_widgets(self):
+        # Botones
+        self.select_btn = tk.Button(self.master, text="Seleccionar Video", command=self.select_video)
+        self.select_btn.pack(pady=10)
+
+        self.output_btn = tk.Button(self.master, text="Seleccionar Carpeta de Salida", command=self.select_output)
+        self.output_btn.pack(pady=10)
+
+        self.process_btn = tk.Button(self.master, text="Iniciar Procesamiento", command=self.start_processing)
+        self.process_btn.pack(pady=10)
+
+        # Visualización del video
+        self.canvas = tk.Canvas(self.master, width=640, height=360)
+        self.canvas.pack(pady=10)
+
+        # Barra de progreso
+        self.progress = ttk.Progressbar(self.master, length=700, mode='determinate')
+        self.progress.pack(pady=10)
+
+        # Etiqueta de estado
+        self.status_label = tk.Label(self.master, text="")
+        self.status_label.pack(pady=10)
+
+        # Botón de salida
+        self.exit_btn = tk.Button(self.master, text="Salir", command=self.master.quit)
+        self.exit_btn.pack(pady=10)
+
+    def select_video(self):
+        self.input_path = filedialog.askopenfilename(filetypes=[("Video files", "*.mp4;*.avi")])
+        if self.input_path:
+            self.status_label.config(text=f"Video seleccionado: {os.path.basename(self.input_path)}")
+            self.show_video_frame()
+
+    def select_output(self):
+        self.output_path = filedialog.askdirectory()
+        if self.output_path:
+            self.status_label.config(text=f"Carpeta de salida: {self.output_path}")
+
+    def show_video_frame(self):
+        cap = cv2.VideoCapture(self.input_path)
+        ret, frame = cap.read()
+        if ret:
+            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            frame = Image.fromarray(frame)
+            frame = frame.resize((640, 360), Image.LANCZOS)
+            photo = ImageTk.PhotoImage(image=frame)
+            self.canvas.create_image(0, 0, anchor=tk.NW, image=photo)
+            self.canvas.image = photo
+        cap.release()
+
+    def start_processing(self):
+        if not self.input_path or not self.output_path:
+            self.status_label.config(text="Por favor, selecciona un video y una carpeta de salida")
+            return
+        if self.is_processing:
+            return
+        self.is_processing = True
+        self.process_btn.config(state=tk.DISABLED)
+        Thread(target=self.process_video).start()
+
+    def enhance_frame(self, frame, scale_factor=2):
+        # Convertir a PIL Image
+        pil_image = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+        
+        # Aplicar Lanczos resampling para upscaling
+        upscaled = pil_image.resize((frame.shape[1]*scale_factor, frame.shape[0]*scale_factor), Image.LANCZOS)
+        
+        # Aplicar filtro de nitidez
+        enhancer = ImageEnhance.Sharpness(upscaled)
+        sharpened = enhancer.enhance(1.5)  # Ajusta este valor para más o menos nitidez
+        
+        # Convertir de vuelta a numpy array
+        return cv2.cvtColor(np.array(sharpened), cv2.COLOR_RGB2BGR)
+
+    def process_video(self):
+        input_video = cv2.VideoCapture(self.input_path)
+        total_frames = int(input_video.get(cv2.CAP_PROP_FRAME_COUNT))
+        fps = input_video.get(cv2.CAP_PROP_FPS)
+        width = int(input_video.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(input_video.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+        output_filename = os.path.join(self.output_path, "upscaled_" + os.path.basename(self.input_path))
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        out = cv2.VideoWriter(output_filename, fourcc, fps, (width*2, height*2))
+
+        for i in range(total_frames):
+            ret, frame = input_video.read()
+            if not ret:
+                break
+            
+            # Aplicar upscaling y mejora
+            enhanced_frame = self.enhance_frame(frame)
+            
+            out.write(enhanced_frame)
+            
+            progress = (i + 1) / total_frames * 100
+            self.master.after(0, self.update_progress, progress)
+
+        input_video.release()
+        out.release()
+
+        self.master.after(0, self.process_complete)
+
+    def update_progress(self, value):
+        self.progress['value'] = value
+        self.status_label.config(text=f"Procesando: {value:.2f}%")
+
+    def process_complete(self):
+        self.is_processing = False
+        self.process_btn.config(state=tk.NORMAL)
+        self.status_label.config(text="Procesamiento completo. Video guardado en la carpeta seleccionada.")
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = VideoUpscaler(root)
+    root.mainloop()
